@@ -49,7 +49,8 @@ PixelDigitizerAlgorithm::PixelDigitizerAlgorithm(const edm::ParameterSet& conf)
               .getParameter<double>("Odd_column_interchannelCoupling_next_column")),
       even_column_interchannelCoupling_next_column_(
           conf.getParameter<ParameterSet>("PixelDigitizerAlgorithm")
-              .getParameter<double>("Even_column_interchannelCoupling_next_column")) {
+              .getParameter<double>("Even_column_interchannelCoupling_next_column")),
+      timewalk_model(conf.getParameter<ParameterSet>("PixelDigitizerAlgorithm").getParameter("TimewalkModelDataFile")) {
   pixelFlag_ = true;
   LogInfo("PixelDigitizerAlgorithm") << "Algorithm constructed "
                                      << "Configuration parameters:"
@@ -60,6 +61,7 @@ PixelDigitizerAlgorithm::PixelDigitizerAlgorithm(const edm::ParameterSet& conf)
                                      << tMax_ << " pix-inefficiency " << addPixelInefficiency_;
 }
 PixelDigitizerAlgorithm::~PixelDigitizerAlgorithm() { LogDebug("PixelDigitizerAlgorithm") << "Algorithm deleted"; }
+
 void PixelDigitizerAlgorithm::accumulateSimHits(std::vector<PSimHit>::const_iterator inputBegin,
                                                 std::vector<PSimHit>::const_iterator inputEnd,
                                                 const size_t inputBeginGlobalIndex,
@@ -202,4 +204,58 @@ void PixelDigitizerAlgorithm::add_cross_talk(const Phase2TrackerGeomDetUnit* pix
       theSignal.emplace(chan, DigitizerUtility::Amplitude(l.second.ampl(), nullptr, -1.0));
     }
   }
+}
+
+
+PixelDigitizerAlgorithm::TimewalkModel::TimewalkModel(const char *filename) {
+  try {
+    std::ifstream file(filename);
+    parse_csv_line(file, input_charge);
+    parse_csv_line(file, threshold);
+    parse_csv_line(file, delay);
+  }
+  catch (std::exception& e) {
+    throw cms::Exception("Configuration") << "Timewalk model data file (" << filename << ") error: " << e.what();
+  }
+  if (delay.size() != input_charge.size() * threshold.size())
+    throw cms::Exception("Configuration") << "Timewalk model data file (" << filename << ") error: series have incompatible size.";
+}
+
+double PixelDigitizerAlgorithm::TimewalkModel::operator()(double q_in, double q_threshold) {
+  auto index_x = find_closest_index(input_charge.begin(), input_charge.end(), q_in);
+  auto index_y = find_closest_index(threshold.begin(), threshold.end(), q_in);
+  return delay[index_x * input_charge.size() + index_y];
+}
+
+template <class Stream>
+void PixelDigitizerAlgorithm::TimewalkModel::parse_csv_line(Stream& stream, std::vector<double>& vec) {
+  std::string line;
+  std::getline(stream, line);
+  std::istringstream ss(line);
+  std::string value;
+  while (std::getline(ss, value, ',')) {
+    vec.push_back(std::stod(value));
+  }
+}
+
+template <class It, class T>
+// requires std::bidirectional_iterator<It> && std::convertible_to<T, typename std::iterator_traits<It>::value_type>
+// [first, last) must be sorted
+It PixelDigitizerAlgorithm::TimewalkModel::find_closest(It first, It last, const T& value) {
+  auto it = std::lower_bound(first, last, value);
+  
+  if (it == first) return first;
+  if (it == last) return --last;
+  
+  auto it_upper = it;
+  auto it_lower = --it;
+
+  return (value - *it_lower > *it_upper - value) ? it_upper : it_lower;
+}
+
+template <class It, class T>
+// requires std::bidirectional_iterator<It> && std::convertible_to<T, typename std::iterator_traits<It>::value_type>
+// [first, last) must be sorted
+std::size_t PixelDigitizerAlgorithm::TimewalkModel::find_closest_index(It first, It last, const T& value) {
+    return std::distance(first, find_closest(first, last, value));
 }

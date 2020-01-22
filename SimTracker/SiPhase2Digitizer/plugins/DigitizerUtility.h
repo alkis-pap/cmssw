@@ -13,8 +13,17 @@
 namespace DigitizerUtility {
   class Amplitude {
   public:
-    Amplitude() : _amp(0.0) {}
-    Amplitude(float amp, const PSimHit* hitp, float frac = 0, size_t hitIndex = 0, uint32_t tofBin = 0) : _amp(amp) {
+    Amplitude() : _amp(0.0), _time(0.0) {}
+    Amplitude(float amp, const PSimHit* hitp, float frac = 0, size_t hitIndex = 0, uint32_t tofBin = 0) : _amp(amp), _time(0.0) {
+      if (frac > 0) {
+        if (hitp != nullptr)
+          _simInfoList.push_back({frac, std::make_unique<SimHitInfoForLinks>(hitp, hitIndex, tofBin)});
+        else
+          _simInfoList.push_back({frac, nullptr});
+      }
+    }
+
+    Amplitude(float amp, float time, const PSimHit* hitp, float frac = 0, size_t hitIndex = 0, uint32_t tofBin = 0) : _amp(amp), _time(time) {
       if (frac > 0) {
         if (hitp != nullptr)
           _simInfoList.push_back({frac, std::make_unique<SimHitInfoForLinks>(hitp, hitIndex, tofBin)});
@@ -25,7 +34,11 @@ namespace DigitizerUtility {
 
     // can be used as a float by convers.
     operator float() const { return _amp; }
+
     float ampl() const { return _amp; }
+
+    float time() const { return _time; }
+
     const std::vector<std::pair<float, std::unique_ptr<SimHitInfoForLinks> > >& simInfoList() const {
       return _simInfoList;
     }
@@ -38,7 +51,9 @@ namespace DigitizerUtility {
           _simInfoList.push_back({ic.first, std::make_unique<SimHitInfoForLinks>(*ic.second)});
       }
     }
-    void operator+=(const float& amp) { _amp += amp; }
+
+    void operator+=(float amp) { _amp += amp; }
+
     void set(const float amplitude) {  // Used to reset the amplitude
       _amp = amplitude;
     }
@@ -48,6 +63,7 @@ namespace DigitizerUtility {
 
   private:
     float _amp;
+    float _time;
     std::vector<std::pair<float, std::unique_ptr<SimHitInfoForLinks> > > _simInfoList;
   };
 
