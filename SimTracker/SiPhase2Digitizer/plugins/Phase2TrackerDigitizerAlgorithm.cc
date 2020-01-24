@@ -537,6 +537,7 @@ void Phase2TrackerDigitizerAlgorithm::induce_signal(
   for (auto const& hit_s : hit_signal) {
     int chan = hit_s.first;
     float time = hit.tof() - pixdet->surface().toGlobal((hit).localPosition()).mag() / 30.0;
+    // std::cout << "time: " << time << "\n";
     theSignal[chan] +=
         (makeDigiSimLinks_ ? DigitizerUtility::Amplitude(hit_s.second, time, &hit, hit_s.second, hitIndex, tofBin)
                            : DigitizerUtility::Amplitude(hit_s.second, time, nullptr, hit_s.second));
@@ -939,8 +940,7 @@ void Phase2TrackerDigitizerAlgorithm::digitize(const Phase2TrackerGeomDetUnit* p
   for (auto const& s : theSignal) {
     const DigitizerUtility::Amplitude& sig_data = s.second;
     float signalInElectrons = sig_data.ampl();
-    float delay = (sig_data.time() == 0) ? 0 : sig_data.time() + timewalk_model(signalInElectrons, theThresholdInE);
-    if (signalInElectrons >= theThresholdInE && theTofLowerCut_ < delay && delay < theTofLowerCut_) {  // check threshold
+    if (signalInElectrons >= theThresholdInE) {  // check threshold
       DigitizerUtility::DigiSimInfo info;
       info.sig_tot = convertSignalToAdc(detID, signalInElectrons, theThresholdInE);  // adc
       info.ot_bit = signalInElectrons > theHIPThresholdInE ? true : false;

@@ -1,5 +1,6 @@
 #include <iostream>
 #include <cmath>
+#include <fstream>
 
 #include "SimTracker/SiPhase2Digitizer/plugins/PixelDigitizerAlgorithm.h"
 #include "SimDataFormats/TrackingHit/interface/PSimHitContainer.h"
@@ -18,6 +19,11 @@
 #include "Geometry/Records/interface/TrackerDigiGeometryRecord.h"
 #include "Geometry/CommonDetUnit/interface/PixelGeomDetUnit.h"
 #include "Geometry/CommonTopologies/interface/PixelTopology.h"
+
+#include "CLHEP/Random/RandGaussQ.h"
+
+#include "DataFormats/SiPixelDetId/interface/PixelSubdetector.h"
+#include "DataFormats/SiStripDetId/interface/StripSubdetector.h"
 
 using namespace edm;
 using namespace sipixelobjects;
@@ -50,7 +56,7 @@ PixelDigitizerAlgorithm::PixelDigitizerAlgorithm(const edm::ParameterSet& conf)
       even_column_interchannelCoupling_next_column_(
           conf.getParameter<ParameterSet>("PixelDigitizerAlgorithm")
               .getParameter<double>("Even_column_interchannelCoupling_next_column")),
-      timewalk_model(conf.getParameter<ParameterSet>("PixelDigitizerAlgorithm").getParameter("TimewalkModelDataFile")) {
+      timewalk_model(conf.getParameter<ParameterSet>("PixelDigitizerAlgorithm").getParameter<std::string>("TimewalkModelDataFile")) {
   pixelFlag_ = true;
   LogInfo("PixelDigitizerAlgorithm") << "Algorithm constructed "
                                      << "Configuration parameters:"
@@ -59,6 +65,8 @@ PixelDigitizerAlgorithm::PixelDigitizerAlgorithm(const edm::ParameterSet& conf)
                                      << "threshold in electron Barrel = " << theThresholdInE_Barrel_ << " "
                                      << theElectronPerADC_ << " " << theAdcFullScale_ << " The delta cut-off is set to "
                                      << tMax_ << " pix-inefficiency " << addPixelInefficiency_;
+  
+  std::cout << "PixelDigitizerAlgorithm - PixelDigitizerAlgorithm\n";                                    
 }
 PixelDigitizerAlgorithm::~PixelDigitizerAlgorithm() { LogDebug("PixelDigitizerAlgorithm") << "Algorithm deleted"; }
 
@@ -68,6 +76,9 @@ void PixelDigitizerAlgorithm::accumulateSimHits(std::vector<PSimHit>::const_iter
                                                 const uint32_t tofBin,
                                                 const Phase2TrackerGeomDetUnit* pixdet,
                                                 const GlobalVector& bfield) {
+
+  // std::cout << "accumulateSimHits" << std::endl;                                                  
+                                                
   // produce SignalPoint's for all SimHit's in detector
   // Loop over hits
   uint32_t detId = pixdet->geographicalId().rawId();
@@ -206,8 +217,86 @@ void PixelDigitizerAlgorithm::add_cross_talk(const Phase2TrackerGeomDetUnit* pix
   }
 }
 
+void PixelDigitizerAlgorithm::digitize(const Phase2TrackerGeomDetUnit* pixdet,
+                                               std::map<int, DigitizerUtility::DigiSimInfo>& digi_map,
+                                               const TrackerTopology* tTopo) {
+                                           
 
-PixelDigitizerAlgorithm::TimewalkModel::TimewalkModel(const char *filename) {
+  uint32_t detID = pixdet->geographicalId().rawId();
+  auto it = _signal.find(detID);
+  if (it == _signal.end())
+    return;
+
+  const signal_map_type& theSignal = _signal[detID];
+
+  uint32_t Sub_detid = DetId(detID).subdetId();
+
+  float theThresholdInE = 0.;
+  float theHIPThresholdInE = 0.;
+  // Define Threshold
+  if (Sub_detid == PixelSubdetector::PixelBarrel || Sub_detid == StripSubdetector::TOB) {  // Barrel modules
+    theThresholdInE = addThresholdSmearing_ ? smearedThreshold_Barrel_->fire()             // gaussian smearing
+                                            : theThresholdInE_Barrel_;                     // no smearing
+    theHIPThresholdInE = theHIPThresholdInE_Barrel_;
+  } else {                                                                      // Forward disks modules
+    theThresholdInE = addThresholdSmearing_ ? smearedThreshold_Endcap_->fire()  // gaussian smearing
+                                            : theThresholdInE_Endcap_;          // no smearing
+    theHIPThresholdInE = theHIPThresholdInE_Endcap_;
+  }
+
+  //  if (addNoise) add_noise(pixdet, theThresholdInE/theNoiseInElectrons_);  // generate noise
+  if (addNoise_)
+    add_noise(pixdet);  // generate noise
+  if (addXtalk_)
+    add_cross_talk(pixdet);
+  if (addNoisyPixels_)
+    add_noisy_cells(pixdet, theHIPThresholdInE / theElectronPerADC_);
+
+  // Do only if needed
+  if (addPixelInefficiency_ && !theSignal.empty()) {
+    if (use_ineff_from_db_)
+      pixel_inefficiency_db(detID);
+    else
+      pixel_inefficiency(subdetEfficiencies_, pixdet, tTopo);
+  }
+  if (use_module_killing_) {
+    if (use_deadmodule_DB_)  // remove dead modules using DB
+      module_killing_DB(detID);
+    else  // remove dead modules using the list in cfg file
+      module_killing_conf(detID);
+  }
+
+  int cnt = 0;
+
+  // Digitize if the signal is greater than threshold
+  for (auto const& s : theSignal) {
+    const DigitizerUtility::Amplitude& sig_data = s.second;
+    float signalInElectrons = sig_data.ampl();
+    float time = sig_data.time();
+    float delay = (time == 0) ? 0 : time + timewalk_model(signalInElectrons, theThresholdInE);
+    // std::cout << "sig: " << signalInElectrons << ", thr: " << theThresholdInE << ", time: " << time << ", delay: " << delay << "\n";
+    if (signalInElectrons >= theThresholdInE && theTofLowerCut_ < delay && delay < theTofLowerCut_) {  // check threshold
+    // if (signalInElectrons >= theThresholdInE) {  // check threshold
+      ++cnt;
+      DigitizerUtility::DigiSimInfo info;
+      info.sig_tot = convertSignalToAdc(detID, signalInElectrons, theThresholdInE);  // adc
+      info.ot_bit = signalInElectrons > theHIPThresholdInE ? true : false;
+      if (makeDigiSimLinks_) {
+        for (auto const& l : sig_data.simInfoList()) {
+          float charge_frac = l.first / signalInElectrons;
+          if (l.first > -5.0)
+            info.simInfoList.push_back({charge_frac, l.second.get()});
+        }
+      }
+      digi_map.insert({s.first, info});
+    }
+  }
+
+  // std::cout << "digitized: " << cnt << '\n';
+}
+
+
+PixelDigitizerAlgorithm::TimewalkModel::TimewalkModel(const std::string&  filename) {
   try {
     std::ifstream file(filename);
     parse_csv_line(file, input_charge);
@@ -221,7 +310,7 @@ PixelDigitizerAlgorithm::TimewalkModel::TimewalkModel(const char *filename) {
     throw cms::Exception("Configuration") << "Timewalk model data file (" << filename << ") error: series have incompatible size.";
 }
 
-double PixelDigitizerAlgorithm::TimewalkModel::operator()(double q_in, double q_threshold) {
+double PixelDigitizerAlgorithm::TimewalkModel::operator()(double q_in, double q_threshold) const {
   auto index_x = find_closest_index(input_charge.begin(), input_charge.end(), q_in);
   auto index_y = find_closest_index(threshold.begin(), threshold.end(), q_in);
   return delay[index_x * input_charge.size() + index_y];
@@ -241,7 +330,7 @@ void PixelDigitizerAlgorithm::TimewalkModel::parse_csv_line(Stream& stream, std:
 template <class It, class T>
 // requires std::bidirectional_iterator<It> && std::convertible_to<T, typename std::iterator_traits<It>::value_type>
 // [first, last) must be sorted
-It PixelDigitizerAlgorithm::TimewalkModel::find_closest(It first, It last, const T& value) {
+It PixelDigitizerAlgorithm::TimewalkModel::find_closest(It first, It last, const T& value) const {
   auto it = std::lower_bound(first, last, value);
   
   if (it == first) return first;
@@ -256,6 +345,6 @@ It PixelDigitizerAlgorithm::TimewalkModel::find_closest(It first, It last, const
 template <class It, class T>
 // requires std::bidirectional_iterator<It> && std::convertible_to<T, typename std::iterator_traits<It>::value_type>
 // [first, last) must be sorted
-std::size_t PixelDigitizerAlgorithm::TimewalkModel::find_closest_index(It first, It last, const T& value) {
+std::size_t PixelDigitizerAlgorithm::TimewalkModel::find_closest_index(It first, It last, const T& value) const {
     return std::distance(first, find_closest(first, last, value));
 }
