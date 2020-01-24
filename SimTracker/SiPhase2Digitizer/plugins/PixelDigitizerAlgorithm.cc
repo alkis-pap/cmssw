@@ -65,9 +65,8 @@ PixelDigitizerAlgorithm::PixelDigitizerAlgorithm(const edm::ParameterSet& conf)
                                      << "threshold in electron Barrel = " << theThresholdInE_Barrel_ << " "
                                      << theElectronPerADC_ << " " << theAdcFullScale_ << " The delta cut-off is set to "
                                      << tMax_ << " pix-inefficiency " << addPixelInefficiency_;
-  
-  std::cout << "PixelDigitizerAlgorithm - PixelDigitizerAlgorithm\n";                                    
 }
+
 PixelDigitizerAlgorithm::~PixelDigitizerAlgorithm() { LogDebug("PixelDigitizerAlgorithm") << "Algorithm deleted"; }
 
 void PixelDigitizerAlgorithm::accumulateSimHits(std::vector<PSimHit>::const_iterator inputBegin,
@@ -76,9 +75,6 @@ void PixelDigitizerAlgorithm::accumulateSimHits(std::vector<PSimHit>::const_iter
                                                 const uint32_t tofBin,
                                                 const Phase2TrackerGeomDetUnit* pixdet,
                                                 const GlobalVector& bfield) {
-
-  // std::cout << "accumulateSimHits" << std::endl;                                                  
-                                                
   // produce SignalPoint's for all SimHit's in detector
   // Loop over hits
   uint32_t detId = pixdet->geographicalId().rawId();
@@ -266,18 +262,19 @@ void PixelDigitizerAlgorithm::digitize(const Phase2TrackerGeomDetUnit* pixdet,
       module_killing_conf(detID);
   }
 
-  int cnt = 0;
-
   // Digitize if the signal is greater than threshold
   for (auto const& s : theSignal) {
     const DigitizerUtility::Amplitude& sig_data = s.second;
     float signalInElectrons = sig_data.ampl();
-    float time = sig_data.time();
-    float delay = (time == 0) ? 0 : time + timewalk_model(signalInElectrons, theThresholdInE);
-    // std::cout << "sig: " << signalInElectrons << ", thr: " << theThresholdInE << ", time: " << time << ", delay: " << delay << "\n";
-    if (signalInElectrons >= theThresholdInE && theTofLowerCut_ < delay && delay < theTofLowerCut_) {  // check threshold
-    // if (signalInElectrons >= theThresholdInE) {  // check threshold
-      ++cnt;
+    if (signalInElectrons >= theThresholdInE) {  // check threshold
+      const PSimHit* hit = sig_data.biggest_hit();
+      if (hit) {
+        float delay = hit->tof();
+        delay -= pixdet->surface().toGlobal(hit->localPosition()).mag() / 30.; // travel time correction
+        delay += timewalk_model(signalInElectrons, theThresholdInE); // add timewalk
+        if (theTofLowerCut_ > delay || delay > theTofUpperCut_) // if out of time
+          continue;
+      }
       DigitizerUtility::DigiSimInfo info;
       info.sig_tot = convertSignalToAdc(detID, signalInElectrons, theThresholdInE);  // adc
       info.ot_bit = signalInElectrons > theHIPThresholdInE ? true : false;
@@ -292,28 +289,27 @@ void PixelDigitizerAlgorithm::digitize(const Phase2TrackerGeomDetUnit* pixdet,
     }
   }
 
-  // std::cout << "digitized: " << cnt << '\n';
 }
 
 
-PixelDigitizerAlgorithm::TimewalkModel::TimewalkModel(const std::string&  filename) {
+PixelDigitizerAlgorithm::TimewalkModel::TimewalkModel(const std::string& file_path) {
   try {
-    std::ifstream file(filename);
+    std::ifstream file(file_path);
     parse_csv_line(file, input_charge);
     parse_csv_line(file, threshold);
     parse_csv_line(file, delay);
   }
   catch (std::exception& e) {
-    throw cms::Exception("Configuration") << "Timewalk model data file (" << filename << ") error: " << e.what();
+    throw cms::Exception("Configuration") << "Timewalk model data file (" << file_path << ") error: " << e.what();
   }
   if (delay.size() != input_charge.size() * threshold.size())
-    throw cms::Exception("Configuration") << "Timewalk model data file (" << filename << ") error: series have incompatible size.";
+    throw cms::Exception("Configuration") << "Timewalk model data file (" << file_path << ") error: series have incompatible size.";
 }
 
 double PixelDigitizerAlgorithm::TimewalkModel::operator()(double q_in, double q_threshold) const {
   auto index_x = find_closest_index(input_charge.begin(), input_charge.end(), q_in);
   auto index_y = find_closest_index(threshold.begin(), threshold.end(), q_in);
-  return delay[index_x * input_charge.size() + index_y];
+  return delay[index_x * input_charge.size() + index_y] * 1e9 - 10; // to-do: apply scaling and offset to the data in the model file instead of doing it here
 }
 
 template <class Stream>

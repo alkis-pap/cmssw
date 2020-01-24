@@ -11,23 +11,27 @@
 #include "SimDataFormats/EncodedEventId/interface/EncodedEventId.h"
 
 namespace DigitizerUtility {
+  
+  class SimHitInfo : public SimHitInfoForLinks {
+  public:
+    SimHitInfo( const PSimHit* hitp, size_t hitIndex, uint32_t tofBin)
+    : SimHitInfoForLinks(hitp, hitIndex, tofBin)
+    , _hit(hitp)
+    {}
+
+    const PSimHit* hit() const { return _hit; }
+
+  private:
+    const PSimHit* _hit;
+  };
+
   class Amplitude {
   public:
-    Amplitude() : _amp(0.0), _time(0.0) {}
-    Amplitude(float amp, const PSimHit* hitp, float frac = 0, size_t hitIndex = 0, uint32_t tofBin = 0) : _amp(amp), _time(0.0) {
+    Amplitude() : _amp(0.0) {}
+    Amplitude(float amp, const PSimHit* hitp, float frac = 0, size_t hitIndex = 0, uint32_t tofBin = 0) : _amp(amp) {
       if (frac > 0) {
         if (hitp != nullptr)
-          _simInfoList.push_back({frac, std::make_unique<SimHitInfoForLinks>(hitp, hitIndex, tofBin)});
-        else
-          _simInfoList.push_back({frac, nullptr});
-      }
-    }
-
-    Amplitude(float amp, float time, const PSimHit* hitp, float frac = 0, size_t hitIndex = 0, uint32_t tofBin = 0) : _amp(amp), _time(time) {
-      // std::cout << "Amplitude wth time (" << _time << ")\n";
-      if (frac > 0) {
-        if (hitp != nullptr)
-          _simInfoList.push_back({frac, std::make_unique<SimHitInfoForLinks>(hitp, hitIndex, tofBin)});
+          _simInfoList.push_back({frac, std::make_unique<SimHitInfo>(hitp, hitIndex, tofBin)});
         else
           _simInfoList.push_back({frac, nullptr});
       }
@@ -38,23 +42,25 @@ namespace DigitizerUtility {
 
     float ampl() const { return _amp; }
 
-    float time() const { return _time; }
+    const PSimHit* biggest_hit() const {
+      auto it = std::max_element(_simInfoList.begin(), _simInfoList.end());
+      if (it->second)
+        return it->second->hit();
+      else
+        return nullptr;
+    }
 
-    const std::vector<std::pair<float, std::unique_ptr<SimHitInfoForLinks> > >& simInfoList() const {
+    const std::vector<std::pair<float, std::unique_ptr<SimHitInfo> > >& simInfoList() const {
       return _simInfoList;
     }
 
     void operator+=(const Amplitude& other) {
-
-      if (_amp < other._amp)
-        _time = other._time;
-      
       _amp += other._amp;
 
       // in case of digi from the noise, the MC information need not be there
       for (auto const& ic : other.simInfoList()) {
         if (ic.first > -0.5)
-          _simInfoList.push_back({ic.first, std::make_unique<SimHitInfoForLinks>(*ic.second)});
+          _simInfoList.push_back({ic.first, std::make_unique<SimHitInfo>(*ic.second)});
       }
     }
 
@@ -68,9 +74,8 @@ namespace DigitizerUtility {
     // }
 
   private:
+    std::vector<std::pair<float, std::unique_ptr<SimHitInfo> > > _simInfoList;
     float _amp;
-    float _time;
-    std::vector<std::pair<float, std::unique_ptr<SimHitInfoForLinks> > > _simInfoList;
   };
 
   //*********************************************************
