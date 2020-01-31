@@ -307,8 +307,8 @@ PixelDigitizerAlgorithm::TimewalkModel::TimewalkModel(const std::string& file_pa
 }
 
 double PixelDigitizerAlgorithm::TimewalkModel::operator()(double q_in, double q_threshold) const {
-  auto index_x = find_closest_index(input_charge.begin(), input_charge.end(), q_in);
-  auto index_y = find_closest_index(threshold.begin(), threshold.end(), q_threshold);
+  auto index_x = find_closest_index(input_charge, q_in);
+  auto index_y = find_closest_index(threshold, q_threshold);
   return delay[index_x * threshold.size() + index_y];
 }
 
@@ -323,24 +323,16 @@ void PixelDigitizerAlgorithm::TimewalkModel::parse_csv_line(Stream& stream, std:
   }
 }
 
-template <class It, class T>
-// requires std::bidirectional_iterator<It> && std::convertible_to<T, typename std::iterator_traits<It>::value_type>
-// [first, last) must be sorted
-It PixelDigitizerAlgorithm::TimewalkModel::find_closest(It first, It last, const T& value) const {
-  auto it = std::lower_bound(first, last, value);
+std::size_t PixelDigitizerAlgorithm::TimewalkModel::find_closest_index(const std::vector<double>& vec, double value) const {
+    auto it = std::lower_bound(vec.begin(), vec.end(), value);
   
-  if (it == first) return first;
-  if (it == last) return --last;
-  
-  auto it_upper = it;
-  auto it_lower = --it;
-
-  return (value - *it_lower > *it_upper - value) ? it_upper : it_lower;
-}
-
-template <class It, class T>
-// requires std::bidirectional_iterator<It> && std::convertible_to<T, typename std::iterator_traits<It>::value_type>
-// [first, last) must be sorted
-std::size_t PixelDigitizerAlgorithm::TimewalkModel::find_closest_index(It first, It last, const T& value) const {
-    return std::distance(first, find_closest(first, last, value));
+    if (it == vec.begin()) return 0;
+    else if (it == vec.end()) return vec.size() - 1;
+    else {
+      auto it_upper = it;
+      auto it_lower = --it;
+      
+      auto closest = (value - *it_lower > *it_upper - value) ? it_upper : it_lower;
+      return std::distance(vec.begin(), closest);
+    }
 }

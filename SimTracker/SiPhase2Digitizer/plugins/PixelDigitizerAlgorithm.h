@@ -7,25 +7,21 @@ class PixelDigitizerAlgorithm : public Phase2TrackerDigitizerAlgorithm {
 private:
   class TimewalkModel {
   public:
+    // construct the model from a file.
+    // The file must contain 3 lines:
+    // 1st line: comma-sepparated values of input charge
+    // 2nd line: comma-sepparated values of threshold
+    // 3rd line: comma-sepparated values of delay, one for each (input charge, threshold) pair
     TimewalkModel(const std::string& filename);
 
-    // returns timewalk (sec) for given input charge and threshold
+    // returns delay for given input charge and threshold
     double operator()(double q_in, double q_threshold) const;
 
   private:
     template <class Stream>
     void parse_csv_line(Stream& stream, std::vector<double>& vec);
 
-    template <class It, class T>
-    // requires std::bidirectional_iterator<It> && std::convertible_to<T, typename std::iterator_traits<It>::value_type>
-    // returns an iterator to the element that is 
-    // [first, last) must be sorted
-    It find_closest(It first, It last, const T& value) const;
-
-    template <class It, class T>
-    //requires std::bidirectional_iterator<It> && std::convertible_to<T, typename std::iterator_traits<It>::value_type>
-    // [first, last) must be sorted
-    std::size_t find_closest_index(It first, It last, const T& value) const;
+    std::size_t find_closest_index(const std::vector<double>& vec, double value) const;
 
     std::vector<double> input_charge;
     std::vector<double> threshold;
