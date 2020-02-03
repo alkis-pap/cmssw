@@ -58,6 +58,7 @@ public:
   virtual void digitize(const Phase2TrackerGeomDetUnit* pixdet,
                         std::map<int, DigitizerUtility::DigiSimInfo>& digi_map,
                         const TrackerTopology* tTopo);
+  virtual bool select_hit(const PSimHit& hit, double tCorr, double& sigScale) = 0;
 
   // For premixing
   void loadAccumulator(uint32_t detId, const std::map<int, float>& accumulator);
@@ -198,7 +199,8 @@ protected:
 
   // remove dead modules using the list in the configuration file PixelDigi_cfi.py
   virtual void module_killing_conf(uint32_t detID);
-  virtual void module_killing_DB(uint32_t detID);  // remove dead modules uisng the list in the DB
+  virtual void module_killing_DB(
+      const Phase2TrackerGeomDetUnit* pixdet);  // remove dead modules uisng the list in the DB
 
   const SubdetEfficiencies subdetEfficiencies_;
 

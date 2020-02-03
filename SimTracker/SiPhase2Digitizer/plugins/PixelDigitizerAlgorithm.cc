@@ -19,10 +19,6 @@
 #include "Geometry/CommonDetUnit/interface/PixelGeomDetUnit.h"
 #include "Geometry/CommonTopologies/interface/PixelTopology.h"
 
-#include "CLHEP/Random/RandGaussQ.h"
-#include "DataFormats/SiPixelDetId/interface/PixelSubdetector.h"
-#include "DataFormats/SiStripDetId/interface/StripSubdetector.h"
-
 using namespace edm;
 using namespace sipixelobjects;
 
@@ -53,8 +49,7 @@ PixelDigitizerAlgorithm::PixelDigitizerAlgorithm(const edm::ParameterSet& conf)
               .getParameter<double>("Odd_column_interchannelCoupling_next_column")),
       even_column_interchannelCoupling_next_column_(
           conf.getParameter<ParameterSet>("PixelDigitizerAlgorithm")
-              .getParameter<double>("Even_column_interchannelCoupling_next_column")),
-      timewalk_model(conf.getParameter<ParameterSet>("PixelDigitizerAlgorithm").getParameter<std::string>("TimewalkModelDataFile")) {
+              .getParameter<double>("Even_column_interchannelCoupling_next_column")) {
   pixelFlag_ = true;
   LogInfo("PixelDigitizerAlgorithm") << "Algorithm constructed "
                                      << "Configuration parameters:"
@@ -77,17 +72,12 @@ void PixelDigitizerAlgorithm::accumulateSimHits(std::vector<PSimHit>::const_iter
   size_t simHitGlobalIndex = inputBeginGlobalIndex;  // This needs to be stored to create the digi-sim link later
 
   // find the relevant hits
-  // std::vector<PSimHit> matchedSimHits;
-  // std::copy_if(inputBegin, inputEnd, std::back_inserter(matchedSimHits), [detId](auto const& hit) -> bool {
-  //   return hit.detUnitId() == detId;
-  // });
-  // // loop over a much reduced set of SimHits
-  // for (auto& hit : matchedSimHits) {
-  for (auto it = inputBegin; it != inputEnd; ++it, ++simHitGlobalIndex) {
-    auto& hit = *it;
-    if (hit.detUnitId() != detId)
-      continue;
-
+  std::vector<PSimHit> matchedSimHits;
+  std::copy_if(inputBegin, inputEnd, std::back_inserter(matchedSimHits), [detId](auto const& hit) -> bool {
+    return hit.detUnitId() == detId;
+  });
+  // loop over a much reduced set of SimHits
+  for (auto const& hit : matchedSimHits) {
     LogDebug("PixelDigitizerAlgorithm") << hit.particleType() << " " << hit.pabs() << " " << hit.energyLoss() << " "
                                         << hit.tof() << " " << hit.trackId() << " " << hit.processType() << " "
                                         << hit.detUnitId() << hit.entryPoint() << " " << hit.exitPoint();
@@ -95,12 +85,9 @@ void PixelDigitizerAlgorithm::accumulateSimHits(std::vector<PSimHit>::const_iter
     std::vector<DigitizerUtility::EnergyDepositUnit> ionization_points;
     std::vector<DigitizerUtility::SignalPoint> collection_points;
 
-    // apply correction to tof
-    double time = hit.tof() - pixdet->surface().toGlobal((hit).localPosition()).mag() / 30.;
-    const_cast<PSimHit&>(*it).setTof(time);
-
-    // check if the hit arrived durring this bunch crossing
-    if (hit.tof() >= theTofLowerCut_ && hit.tof() <= theTofUpperCut_) {
+    double signalScale = 1.0;
+    // fill collection_points for this SimHit, indpendent of topology                                                                                                                                                                         
+    if (select_hit(hit, (pixdet->surface().toGlobal(hit.localPosition()).mag()/30.),signalScale)) {
       primary_ionization(hit, ionization_points);  // fills ionization_points
 
       // transforms ionization_points -> collection_points
@@ -110,8 +97,19 @@ void PixelDigitizerAlgorithm::accumulateSimHits(std::vector<PSimHit>::const_iter
       // hit needed only for SimHit<-->Digi link
       induce_signal(hit, simHitGlobalIndex, tofBin, pixdet, collection_points);
     }
-    // ++simHitGlobalIndex;
+    ++simHitGlobalIndex;
   }
+}
+//
+// -- Select the Hit for Digitization
+//
+bool PixelDigitizerAlgorithm::select_hit(const PSimHit& hit, double tCorr, double& sigScale) {
+  bool result = false;
+  sigScale = 1.0;
+  double toa = hit.tof() - tCorr;
+  if (toa > theTofLowerCut_ && toa < theTofUpperCut_) result = true;
+
+  return result;
 }
 // ======================================================================
 //
@@ -214,132 +212,4 @@ void PixelDigitizerAlgorithm::add_cross_talk(const Phase2TrackerGeomDetUnit* pix
       theSignal.emplace(chan, DigitizerUtility::Amplitude(l.second.ampl(), nullptr, -1.0));
     }
   }
-}
-
-void PixelDigitizerAlgorithm::digitize(const Phase2TrackerGeomDetUnit* pixdet,
-                                               std::map<int, DigitizerUtility::DigiSimInfo>& digi_map,
-                                               const TrackerTopology* tTopo) {
-                                           
-  // det_names.insert(pixdet->type().name());
-
-  uint32_t detID = pixdet->geographicalId().rawId();
-  auto it = _signal.find(detID);
-  if (it == _signal.end())
-    return;
-
-  const signal_map_type& theSignal = _signal[detID];
-
-  uint32_t Sub_detid = DetId(detID).subdetId();
-
-  float theThresholdInE = 0.;
-  float theHIPThresholdInE = 0.;
-  // Define Threshold
-  if (Sub_detid == PixelSubdetector::PixelBarrel || Sub_detid == StripSubdetector::TOB) {  // Barrel modules
-    theThresholdInE = addThresholdSmearing_ ? smearedThreshold_Barrel_->fire()             // gaussian smearing
-                                            : theThresholdInE_Barrel_;                     // no smearing
-    theHIPThresholdInE = theHIPThresholdInE_Barrel_;
-  } else {                                                                      // Forward disks modules
-    theThresholdInE = addThresholdSmearing_ ? smearedThreshold_Endcap_->fire()  // gaussian smearing
-                                            : theThresholdInE_Endcap_;          // no smearing
-    theHIPThresholdInE = theHIPThresholdInE_Endcap_;
-  }
-
-  //  if (addNoise) add_noise(pixdet, theThresholdInE/theNoiseInElectrons_);  // generate noise
-  if (addNoise_)
-    add_noise(pixdet);  // generate noise
-  if (addXtalk_)
-    add_cross_talk(pixdet);
-  if (addNoisyPixels_)
-    add_noisy_cells(pixdet, theHIPThresholdInE / theElectronPerADC_);
-
-  // Do only if needed
-  if (addPixelInefficiency_ && !theSignal.empty()) {
-    if (use_ineff_from_db_)
-      pixel_inefficiency_db(detID);
-    else
-      pixel_inefficiency(subdetEfficiencies_, pixdet, tTopo);
-  }
-  if (use_module_killing_) {
-    if (use_deadmodule_DB_)  // remove dead modules using DB
-      module_killing_DB(detID);
-    else  // remove dead modules using the list in cfg file
-      module_killing_conf(detID);
-  }
-
-  // Digitize if the signal is greater than threshold
-  for (auto const& s : theSignal) {
-    const DigitizerUtility::Amplitude& sig_data = s.second;
-    float signalInElectrons = sig_data.ampl();
-
-    const auto& info_list = sig_data.simInfoList();
-    const auto it = std::max_element(info_list.begin(), info_list.end());
-    const DigitizerUtility::SimHitInfo* hit_info = it->second.get();
-    if (hit_info) {
-      if (hit_info->time() != 0)
-        std::cout << "ERROR!!!!!!!!!!!!!!!!" << std::endl;
-      double time = hit_info->time() + timewalk_model(signalInElectrons, theThresholdInE);
-      if (time < theTofLowerCut_ || time > theTofUpperCut_)
-        continue;
-    }
-
-    if (signalInElectrons >= theThresholdInE) {  // check threshold
-      DigitizerUtility::DigiSimInfo info;
-      info.sig_tot = convertSignalToAdc(detID, signalInElectrons, theThresholdInE);  // adc
-      info.ot_bit = signalInElectrons > theHIPThresholdInE ? true : false;
-      if (makeDigiSimLinks_) {
-        for (auto const& l : sig_data.simInfoList()) {
-          float charge_frac = l.first / signalInElectrons;
-          if (l.first > -5.0)
-            info.simInfoList.push_back({charge_frac, l.second.get()});
-        }
-      }
-      digi_map.insert({s.first, info});
-    }
-  }
-
-}
-
-PixelDigitizerAlgorithm::TimewalkModel::TimewalkModel(const std::string& file_path) {
-  try {
-    std::ifstream file(file_path);
-    parse_csv_line(file, input_charge);
-    parse_csv_line(file, threshold);
-    parse_csv_line(file, delay);
-  }
-  catch (std::exception& e) {
-    throw cms::Exception("Configuration") << "Timewalk model data file (" << file_path << ") error: " << e.what();
-  }
-  if (delay.size() != input_charge.size() * threshold.size())
-    throw cms::Exception("Configuration") << "Timewalk model data file (" << file_path << ") error: series have incompatible size.";
-}
-
-double PixelDigitizerAlgorithm::TimewalkModel::operator()(double q_in, double q_threshold) const {
-  auto index_x = find_closest_index(input_charge, q_in);
-  auto index_y = find_closest_index(threshold, q_threshold);
-  return delay[index_x * threshold.size() + index_y];
-}
-
-template <class Stream>
-void PixelDigitizerAlgorithm::TimewalkModel::parse_csv_line(Stream& stream, std::vector<double>& vec) {
-  std::string line;
-  std::getline(stream, line);
-  std::istringstream ss(line);
-  std::string value;
-  while (std::getline(ss, value, ',')) {
-    vec.push_back(std::stod(value));
-  }
-}
-
-std::size_t PixelDigitizerAlgorithm::TimewalkModel::find_closest_index(const std::vector<double>& vec, double value) const {
-    auto it = std::lower_bound(vec.begin(), vec.end(), value);
-  
-    if (it == vec.begin()) return 0;
-    else if (it == vec.end()) return vec.size() - 1;
-    else {
-      auto it_upper = it;
-      auto it_lower = --it;
-      
-      auto closest = (value - *it_lower > *it_upper - value) ? it_upper : it_lower;
-      return std::distance(vec.begin(), closest);
-    }
 }
