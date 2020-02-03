@@ -11,25 +11,44 @@
 
 namespace DigitizerUtility {
 
+  // class SimHitInfo {
+  // public:
+  //   SimHitInfo(const PSimHit* hitp, size_t hitIndex, uint32_t tofBin)
+  //    : eventId_(hitp->eventId()), trackId_(hitp->trackId()), hitIndex_(hitIndex), tofBin_(tofBin), time_(hitp->tof())
+  //   {}
+
+  //   uint32_t hitIndex() const { return hitIndex_; };
+  //   uint32_t tofBin() const { return tofBin_; };
+  //   EncodedEventId eventId() const { return eventId_; };
+  //   uint32_t trackId() const { return trackId_; };
+  //   float time() const { return time_; };
+
+  // private:
+  //   EncodedEventId eventId_;
+  //   uint32_t trackId_;
+  //   uint32_t hitIndex_;
+  //   uint32_t tofBin_;
+  //   float time_;
+  // };
+
   class SimHitInfo {
   public:
     SimHitInfo(const PSimHit* hitp, size_t hitIndex, uint32_t tofBin)
-     : eventId_(hitp->eventId()), trackId_(hitp->trackId()), hitIndex_(hitIndex), tofBin_(tofBin), time_(hitp->tof())
+     : hit_(hitp), hitIndex_(hitIndex), tofBin_(tofBin)
     {}
 
     uint32_t hitIndex() const { return hitIndex_; };
     uint32_t tofBin() const { return tofBin_; };
-    EncodedEventId eventId() const { return eventId_; };
-    uint32_t trackId() const { return trackId_; };
-    float time() const { return time_; };
+    EncodedEventId eventId() const { return hit_->eventId(); };
+    uint32_t trackId() const { return hit_->trackId(); };
+    float time() const { return hit_->tof(); };
 
   private:
-    EncodedEventId eventId_;
-    uint32_t trackId_;
+    const PSimHit* hit_;
     uint32_t hitIndex_;
     uint32_t tofBin_;
-    float time_;
   };
+
 
   class Amplitude {
   public:
