@@ -57,7 +57,8 @@ phase2TrackerDigitizer = cms.PSet(
       EfficiencyFactors_Barrel = cms.vdouble(0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999 ),
       EfficiencyFactors_Endcap = cms.vdouble(0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 
       0.999, 0.999 ),#Efficiencies kept as Side2Disk1,Side1Disk1 and so on
-      CellsToKill = cms.VPSet()
+      CellsToKill = cms.VPSet(),
+      TimewalkModelDataFile = cms.vstring('model.csv')
     ),
 #Pixel in PS Module
     PSPDigitizerAlgorithm = cms.PSet(
