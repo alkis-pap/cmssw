@@ -3,30 +3,69 @@
 
 #include "SimTracker/SiPhase2Digitizer/plugins/Phase2TrackerDigitizerAlgorithm.h"
 
+#include "TH2I.h"
+
+#include <mutex>
+
 class PixelDigitizerAlgorithm : public Phase2TrackerDigitizerAlgorithm {
 private:
+  // A list of 2d points
+  class TimewalkCurve {
+  public:
+      // pset must contain "charge" and "delay" of type vdouble
+      TimewalkCurve(const edm::ParameterSet& pset);
+
+      // linear interpolation
+      double operator() (double x) const;
+
+    private:
+      std::vector<double> x_;
+      std::vector<double> y_;
+    };
+
+  // Holds the timewalk model data
   class TimewalkModel {
   public:
-    // construct the model from a file.
-    // The file must contain 3 lines:
-    // 1st line: comma-sepparated values of input charge
-    // 2nd line: comma-sepparated values of threshold
-    // 3rd line: comma-sepparated values of delay, one for each (input charge, threshold) pair
-    TimewalkModel(const std::string& filename);
+    TimewalkModel(const edm::ParameterSet& pset);
 
-    // returns delay for given input charge and threshold
+    // returns the delay for given input charge and threshold
     double operator()(double q_in, double q_threshold) const;
 
   private:
-    template <class Stream>
-    void parse_csv_line(Stream& stream, std::vector<double>& vec);
-
     std::size_t find_closest_index(const std::vector<double>& vec, double value) const;
 
-    std::vector<double> input_charge;
-    std::vector<double> threshold;
-    std::vector<double> delay;
+    std::vector<double> threshold_values;
+    std::vector<TimewalkCurve> curves;
   };
+
+  // Can be used to produce histograms
+  // Mutex protected in order to merge data from multiple threads
+  class ValidationHistograms {
+  public:
+    ~ValidationHistograms();
+
+    void setFilename(const std::string& filename);
+    void addDetectedHit(const std::string& detType, double charge, double time);
+    void addLateHit(const std::string& detType, double charge, double time);
+    void addUndetectedHit(const std::string& detType, double charge, double time);
+  
+  private:
+    template <size_t... Is>
+    void add(const std::string& detType, double charge, double time);
+
+    struct HistogramArray : public std::array<TH2I*, 4> {
+      template <class... H>
+      HistogramArray(H... histograms)
+        : std::array<TH2I*, 4>{{histograms...}}
+      {}
+    };
+
+    std::map<std::string, HistogramArray> histograms;
+    std::string filename_;
+    std::mutex mutex_;
+  };
+
+  static ValidationHistograms validationHistograms;
 
 public:
   PixelDigitizerAlgorithm(const edm::ParameterSet& conf);
@@ -49,14 +88,17 @@ public:
                 std::map<int, DigitizerUtility::DigiSimInfo>& digi_map,
                 const TrackerTopology* tTopo) override;
 
-  virtual bool select_hit(const PSimHit& hit, double tCorr, double& sigScale) { return true; } // not used
+  bool select_hit(const PSimHit& hit, double tCorr, double& sigScale) override { return true; }
 
+private:
   // Addition four xtalk-related parameters to PixelDigitizerAlgorithm specific parameters initialized in Phase2TrackerDigitizerAlgorithm
   const double odd_row_interchannelCoupling_next_row_;
   const double even_row_interchannelCoupling_next_row_;
   const double odd_column_interchannelCoupling_next_column_;
   const double even_column_interchannelCoupling_next_column_;
 
-  const TimewalkModel timewalk_model;
+  const TimewalkModel timewalk_model_;
+
+  bool doValidation_;
 };
 #endif

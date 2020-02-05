@@ -53,12 +53,43 @@ phase2TrackerDigitizer = cms.PSet(
       DeadModules_DB = cms.bool(False),
       DeadModules = cms.VPSet(),
       AddInefficiency = cms.bool(False),
-      Inefficiency_DB = cms.bool(False),				
+      Inefficiency_DB = cms.bool(False),
       EfficiencyFactors_Barrel = cms.vdouble(0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999 ),
       EfficiencyFactors_Endcap = cms.vdouble(0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 0.999, 
       0.999, 0.999 ),#Efficiencies kept as Side2Disk1,Side1Disk1 and so on
       CellsToKill = cms.VPSet(),
-      TimewalkModelDataFile = cms.vstring('model.csv')
+      
+      # new parameters
+      doValidation = cms.bool(True),
+      ValidationOutputFile = cms.string('validationHistograms.root'),
+      # RD53A
+      TimewalkModel = cms.PSet(
+        ThresholdValues = cms.vdouble(1000, 1200),
+        Curves = cms.VPSet(
+            cms.PSet(
+                charge = cms.vdouble(1.000E3, 1.050E3, 1.100E3, 1.150E3, 1.200E3, 1.250E3, 1.300E3, 1.400E3, 1.500E3, 1.600E3, 1.700E3, 1.800E3, 1.900E3, 2.000E3, 4.000E3, 6.000E3, 8.000E3, 10.00E3, 15.00E3, 20.00E3, 25.00E3),
+                delay = cms.vdouble(43.51, 34.410000000000004, 30.45, 27.73, 25.650000000000002, 23.96, 22.55, 20.29, 18.54, 17.11, 15.92, 14.92, 14.040000000000001, 13.270000000000001, 6.51, 4.234, 3.0300000000000002, 2.272, 1.188, 0.601, 0.2351)
+            ),
+            cms.PSet(
+                charge = cms.vdouble(1.200E3, 1.250E3, 1.300E3, 1.350E3, 1.400E3, 1.450E3, 1.500E3, 1.600E3, 1.700E3, 1.800E3, 1.900E3, 2.000E3, 4.000E3, 6.000E3, 8.000E3, 10.00E3, 15.00E3, 20.00E3, 25.00E3),
+                delay = cms.vdouble(42.78, 33.589999999999996, 29.87, 27.32, 25.37, 23.779999999999998, 22.44, 20.29, 18.6, 17.220000000000002, 16.07, 15.069999999999999, 7.032, 4.516, 3.214, 2.404, 1.2590000000000001, 0.6393, 0.2535)
+            )
+        )
+      )
+      # RD53B
+    #   TimewalkModel = cms.PSet(
+    #     ThresholdValues = cms.vdouble(1000, 1200),
+    #     Curves = cms.VPSet(
+    #         cms.PSet(
+    #             charge = cms.vdouble(1.000E3, 1.050E3, 1.100E3, 1.200E3, 1.300E3, 1.400E3, 1.500E3, 1.600E3, 1.700E3, 1.800E3, 1.900E3, 2.000E3, 4.000E3, 6.000E3, 8.000E3, 10.00E3, 15.00E3, 20.00E3, 25.00E3),
+    #             delay = cms.vdouble(28.0, 22.67, 20.18, 17.14, 15.17, 13.729999999999999, 12.59, 11.67, 10.9, 10.24, 9.662, 9.155, 4.598, 2.995, 2.122, 1.564, 0.7648, 0.3422, 0.08872000000000001)
+    #         ),
+    #         cms.PSet(
+    #             charge = cms.vdouble(1.200E3, 1.250E3, 1.300E3, 1.400E3, 1.500E3, 1.600E3, 1.700E3, 1.800E3, 1.900E3, 2.000E3, 4.000E3, 6.000E3, 8.000E3, 10.00E3, 15.00E3, 20.00E3, 25.00E3),
+    #             delay = cms.vdouble(28.45, 22.82, 20.41, 17.47, 15.55, 14.12, 13.01, 12.09, 11.31, 10.639999999999999, 5.1160000000000005, 3.317, 2.359, 1.754, 0.8986, 0.45, 0.18209999999999998)
+    #         )
+    #     )
+    #   )
     ),
 #Pixel in PS Module
     PSPDigitizerAlgorithm = cms.PSet(

@@ -23,6 +23,8 @@
 #include "DataFormats/SiPixelDetId/interface/PixelSubdetector.h"
 #include "DataFormats/SiStripDetId/interface/StripSubdetector.h"
 
+#include "TFile.h"
+
 using namespace edm;
 using namespace sipixelobjects;
 
@@ -54,7 +56,8 @@ PixelDigitizerAlgorithm::PixelDigitizerAlgorithm(const edm::ParameterSet& conf)
       even_column_interchannelCoupling_next_column_(
           conf.getParameter<ParameterSet>("PixelDigitizerAlgorithm")
               .getParameter<double>("Even_column_interchannelCoupling_next_column")),
-      timewalk_model(conf.getParameter<ParameterSet>("PixelDigitizerAlgorithm").getParameter<std::string>("TimewalkModelDataFile")) {
+      timewalk_model_(conf.getParameter<ParameterSet>("PixelDigitizerAlgorithm").getParameter<edm::ParameterSet>("TimewalkModel")),
+      doValidation_(conf.getParameter<ParameterSet>("PixelDigitizerAlgorithm").getParameter<bool>("doValidation")) {
   pixelFlag_ = true;
   LogInfo("PixelDigitizerAlgorithm") << "Algorithm constructed "
                                      << "Configuration parameters:"
@@ -63,8 +66,12 @@ PixelDigitizerAlgorithm::PixelDigitizerAlgorithm(const edm::ParameterSet& conf)
                                      << "threshold in electron Barrel = " << theThresholdInE_Barrel_ << " "
                                      << theElectronPerADC_ << " " << theAdcFullScale_ << " The delta cut-off is set to "
                                      << tMax_ << " pix-inefficiency " << addPixelInefficiency_;
+  if (doValidation_)
+    validationHistograms.setFilename(conf.getParameter<ParameterSet>("PixelDigitizerAlgorithm").getParameter<std::string>("ValidationOutputFile"));
 }
+
 PixelDigitizerAlgorithm::~PixelDigitizerAlgorithm() { LogDebug("PixelDigitizerAlgorithm") << "Algorithm deleted"; }
+
 void PixelDigitizerAlgorithm::accumulateSimHits(std::vector<PSimHit>::const_iterator inputBegin,
                                                 std::vector<PSimHit>::const_iterator inputEnd,
                                                 const size_t inputBeginGlobalIndex,
@@ -76,13 +83,12 @@ void PixelDigitizerAlgorithm::accumulateSimHits(std::vector<PSimHit>::const_iter
   uint32_t detId = pixdet->geographicalId().rawId();
   size_t simHitGlobalIndex = inputBeginGlobalIndex;  // This needs to be stored to create the digi-sim link later
 
-  // find the relevant hits
-  std::vector<PSimHit> matchedSimHits;
-  std::copy_if(inputBegin, inputEnd, std::back_inserter(matchedSimHits), [detId](auto const& hit) -> bool {
-    return hit.detUnitId() == detId;
-  });
-  // loop over a much reduced set of SimHits
-  for (auto& hit : matchedSimHits) {
+  for (auto it = inputBegin; it != inputEnd; ++it) {
+    const auto& hit = *it;
+    
+    if (hit.detUnitId() != detId)
+      continue;
+
     LogDebug("PixelDigitizerAlgorithm") << hit.particleType() << " " << hit.pabs() << " " << hit.energyLoss() << " "
                                         << hit.tof() << " " << hit.trackId() << " " << hit.processType() << " "
                                         << hit.detUnitId() << hit.entryPoint() << " " << hit.exitPoint();
@@ -92,10 +98,9 @@ void PixelDigitizerAlgorithm::accumulateSimHits(std::vector<PSimHit>::const_iter
 
     // apply correction to tof
     double time = hit.tof() - pixdet->surface().toGlobal((hit).localPosition()).mag() / 30.;
-    hit.setTof(time);
 
     // check if the hit arrived durring this bunch crossing
-    if (hit.tof() >= theTofLowerCut_ && hit.tof() <= theTofUpperCut_) {
+    if (doValidation_ || (time >= theTofLowerCut_ && time <= theTofUpperCut_)) {
       primary_ionization(hit, ionization_points);  // fills ionization_points
 
       // transforms ionization_points -> collection_points
@@ -266,11 +271,27 @@ void PixelDigitizerAlgorithm::digitize(const Phase2TrackerGeomDetUnit* pixdet,
 
     const auto& info_list = sig_data.simInfoList();
     const auto it = std::max_element(info_list.begin(), info_list.end());
-    const DigitizerUtility::SimHitInfo* hit_info = it->second.get();
-    if (hit_info) {
-      double time = hit_info->time() + timewalk_model(signalInElectrons, theThresholdInE);
-      if (time < theTofLowerCut_ || time > theTofUpperCut_)
-        continue;
+    const DigitizerUtility::SimHitInfo* hitInfo = it->second.get();
+    if (hitInfo) {
+      const PSimHit* hit = hitInfo->hit();
+      const std::string detType = pixdet->type().name();
+      if (signalInElectrons < theThresholdInE) {
+        // undetected hits (below threshold)
+        if (doValidation_) validationHistograms.addUndetectedHit(detType, signalInElectrons, hit->tof());
+      }
+      else {
+        double tCorr = pixdet->surface().toGlobal(hit->localPosition()).mag()/30.;
+        double time = hit->tof() - tCorr + timewalk_model_(signalInElectrons, theThresholdInE);
+        if (time < theTofLowerCut_ || time > theTofUpperCut_) {
+          // late hits
+          if (doValidation_) validationHistograms.addLateHit(detType, signalInElectrons, hit->tof());
+          continue;
+        }
+        else {
+          // detected hits
+          if (doValidation_) validationHistograms.addDetectedHit(detType, signalInElectrons, hit->tof());
+        }
+      }
     }
 
     if (signalInElectrons >= theThresholdInE) {  // check threshold
@@ -289,47 +310,102 @@ void PixelDigitizerAlgorithm::digitize(const Phase2TrackerGeomDetUnit* pixdet,
   }
 }
 
-PixelDigitizerAlgorithm::TimewalkModel::TimewalkModel(const std::string& file_path) {
-  try {
-    std::ifstream file(file_path);
-    parse_csv_line(file, input_charge);
-    parse_csv_line(file, threshold);
-    parse_csv_line(file, delay);
-  }
-  catch (std::exception& e) {
-    throw cms::Exception("Configuration") << "Timewalk model data file (" << file_path << ") error: " << e.what();
-  }
-  if (delay.size() != input_charge.size() * threshold.size())
-    throw cms::Exception("Configuration") << "Timewalk model data file (" << file_path << ") error: series have incompatible size.";
+PixelDigitizerAlgorithm::TimewalkCurve::TimewalkCurve(const edm::ParameterSet& pset)
+  : x_(pset.getParameter<std::vector<double>>("charge"))
+  , y_(pset.getParameter<std::vector<double>>("delay"))
+{
+  if (x_.size() != y_.size())
+    throw cms::Exception("Configuration") << "Timewalk model error: Invalid curve.";
+}
+
+double PixelDigitizerAlgorithm::TimewalkCurve::operator()(double x) const {
+  auto it = std::lower_bound(x_.begin(), x_.end(), x);
+  if (it == x_.begin())
+    return y_.front();
+  if (it == x_.end())
+    return y_.back();
+  int index = std::distance(x_.begin(), it);
+  double x_high = *it;
+  double x_low = *(--it);
+  double p = (x - x_low) / (x_high - x_low);
+  return p * y_[index] + (1 - p) * y_[index - 1];
+}
+
+PixelDigitizerAlgorithm::TimewalkModel::TimewalkModel(const edm::ParameterSet& pset) {
+  threshold_values = pset.getParameter<std::vector<double>>("ThresholdValues");
+  const auto& curve_psetvec = pset.getParameter<std::vector<edm::ParameterSet>>("Curves");
+  if (threshold_values.size() != curve_psetvec.size())
+    throw cms::Exception("Configuration") << "Timewalk model error: the number of threshold values does not match the number of curves.";
+  for (const auto& curve_pset : curve_psetvec)
+    curves.emplace_back(curve_pset);
 }
 
 double PixelDigitizerAlgorithm::TimewalkModel::operator()(double q_in, double q_threshold) const {
-  auto index_x = find_closest_index(input_charge, q_in);
-  auto index_y = find_closest_index(threshold, q_threshold);
-  return delay[index_x * threshold.size() + index_y];
-}
-
-template <class Stream>
-void PixelDigitizerAlgorithm::TimewalkModel::parse_csv_line(Stream& stream, std::vector<double>& vec) {
-  std::string line;
-  std::getline(stream, line);
-  std::istringstream ss(line);
-  std::string value;
-  while (std::getline(ss, value, ',')) {
-    vec.push_back(std::stod(value));
-  }
+  auto index = find_closest_index(threshold_values, q_threshold);
+  return curves[index](q_in);
 }
 
 std::size_t PixelDigitizerAlgorithm::TimewalkModel::find_closest_index(const std::vector<double>& vec, double value) const {
     auto it = std::lower_bound(vec.begin(), vec.end(), value);
-  
     if (it == vec.begin()) return 0;
     else if (it == vec.end()) return vec.size() - 1;
     else {
       auto it_upper = it;
       auto it_lower = --it;
-      
       auto closest = (value - *it_lower > *it_upper - value) ? it_upper : it_lower;
       return std::distance(vec.begin(), closest);
     }
+}
+
+PixelDigitizerAlgorithm::ValidationHistograms PixelDigitizerAlgorithm::validationHistograms;
+
+template <size_t... Is>
+void PixelDigitizerAlgorithm::ValidationHistograms::add(const std::string& detType, double charge, double time) {
+  std::lock_guard<std::mutex> guard(mutex_);
+  auto it = histograms.find(detType);
+  if (it == histograms.end()) {
+    it = histograms.emplace(std::piecewise_construct, 
+      std::forward_as_tuple(detType),
+      std::forward_as_tuple(
+        new TH2I((detType + "_all").c_str(), (detType + ": All Hits").c_str(), 360, -5, 55, 360, 0, 54000),
+        new TH2I((detType + "_alpha").c_str(), (detType + ": Detected Hits (alpha)").c_str(), 360, -5, 55, 360, 0, 54000),
+        new TH2I((detType + "_beta").c_str(), (detType + ": Late Hits (beta)").c_str(), 360, -5, 55, 360, 0, 54000),
+        new TH2I((detType + "_gamma").c_str(), (detType + ": Undetected Hits (gamma)").c_str(), 360, -5, 55, 360, 0, 54000)
+      )
+    ).first;
+  }
+  (it->second[Is]->Fill(time, charge), ...);
+}
+
+void PixelDigitizerAlgorithm::ValidationHistograms::setFilename(const std::string& filename) {
+  std::lock_guard<std::mutex> guard(mutex_);
+  if (!filename_.size()) {
+    filename_ = filename;
+  }
+}
+
+void PixelDigitizerAlgorithm::ValidationHistograms::addDetectedHit(const std::string& detType, double charge, double time) {
+  add<0, 1>(detType, charge, time);
+}
+
+void PixelDigitizerAlgorithm::ValidationHistograms::addLateHit(const std::string& detType, double charge, double time) {
+  add<0, 2>(detType, charge, time);
+}
+
+void PixelDigitizerAlgorithm::ValidationHistograms::addUndetectedHit(const std::string& detType, double charge, double time) {
+  add<0, 3>(detType, charge, time);
+}
+
+PixelDigitizerAlgorithm::ValidationHistograms::~ValidationHistograms() {
+  if (filename_.size() && !histograms.empty()) {
+    TFile* file = new TFile(filename_.c_str(), "RECREATE");
+    if (file) {
+      for (const auto& det_type : histograms) {
+        for (TH2I* hist : det_type.second) {
+          hist->Write();
+        }
+      }
+      file->Close();
+    }
+  }
 }
