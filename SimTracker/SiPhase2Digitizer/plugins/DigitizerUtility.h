@@ -11,49 +11,24 @@
 
 namespace DigitizerUtility {
 
-  template <class C>
-  class pointer_back_insert_iterator {
-      struct inserter {
-          using input_type = std::remove_pointer_t<typename C::value_type>;
-          auto& operator=(input_type& value) { 
-              container_.push_back(&value);
-              return container_.back();
-          }
-          // auto& operator=(const input_type& value) const { 
-          //     container_.push_back(&value);
-          //     return container_.back();
-          // }
-          C& container_;
-      };
-  public:
-      pointer_back_insert_iterator(C& container) : container_(container) {}
-      auto& operator++() { return *this; }
-      auto operator*() { return inserter{container_}; }
-  private:
-      C& container_;
-  };
-
-  template <class C>
-  auto pointer_back_inserter(C& container) {
-      return pointer_back_insert_iterator<C>(container);
-  }
-
   class SimHitInfo {
   public:
     SimHitInfo(const PSimHit* hitp, size_t hitIndex, uint32_t tofBin)
-      : hit_(hitp), hitIndex_(hitIndex), tofBin_(tofBin)
+      : eventId_(hitp->eventId()), trackId_(hitp->trackId()), hitIndex_(hitIndex), tofBin_(tofBin) //, time_(time)
     {}
 
     uint32_t hitIndex() const { return hitIndex_; };
     uint32_t tofBin() const { return tofBin_; };
-    EncodedEventId eventId() const { return hit_->eventId(); };
-    uint32_t trackId() const { return hit_->trackId(); };
-    const PSimHit* hit() const { return hit_; }
+    EncodedEventId eventId() const { return eventId_; };
+    uint32_t trackId() const { return trackId_; };
+    // float time() const { return time_; }
 
   private:
-    const PSimHit* hit_;
+    EncodedEventId eventId_;
+    uint32_t trackId_;
     uint32_t hitIndex_;
     uint32_t tofBin_;
+    // float time_;
   };
 
   class Amplitude {

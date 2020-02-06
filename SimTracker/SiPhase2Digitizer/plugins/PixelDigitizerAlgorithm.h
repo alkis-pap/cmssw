@@ -69,5 +69,7 @@ private:
   const double even_column_interchannelCoupling_next_column_;
 
   const TimewalkModel timewalk_model_;
+
+  std::map<size_t, double> hit_times;
 };
 #endif
