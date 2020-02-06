@@ -19,10 +19,6 @@ namespace DigitizerUtility {
               container_.push_back(&value);
               return container_.back();
           }
-          // auto& operator=(const input_type& value) const { 
-          //     container_.push_back(&value);
-          //     return container_.back();
-          // }
           C& container_;
       };
   public:
