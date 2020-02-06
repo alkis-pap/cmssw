@@ -14,21 +14,19 @@ namespace DigitizerUtility {
   class SimHitInfo {
   public:
     SimHitInfo(const PSimHit* hitp, size_t hitIndex, uint32_t tofBin)
-      : eventId_(hitp->eventId()), trackId_(hitp->trackId()), hitIndex_(hitIndex), tofBin_(tofBin) //, time_(time)
+      : eventId_(hitp->eventId()), trackId_(hitp->trackId()), hitIndex_(hitIndex), tofBin_(tofBin)
     {}
 
     uint32_t hitIndex() const { return hitIndex_; };
     uint32_t tofBin() const { return tofBin_; };
     EncodedEventId eventId() const { return eventId_; };
     uint32_t trackId() const { return trackId_; };
-    // float time() const { return time_; }
 
   private:
     EncodedEventId eventId_;
     uint32_t trackId_;
     uint32_t hitIndex_;
     uint32_t tofBin_;
-    // float time_;
   };
 
   class Amplitude {
