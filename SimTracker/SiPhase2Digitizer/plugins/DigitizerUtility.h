@@ -11,6 +11,33 @@
 
 namespace DigitizerUtility {
 
+  template <class C>
+  class pointer_back_insert_iterator {
+      struct inserter {
+          using input_type = std::remove_pointer_t<typename C::value_type>;
+          auto& operator=(input_type& value) { 
+              container_.push_back(&value);
+              return container_.back();
+          }
+          // auto& operator=(const input_type& value) const { 
+          //     container_.push_back(&value);
+          //     return container_.back();
+          // }
+          C& container_;
+      };
+  public:
+      pointer_back_insert_iterator(C& container) : container_(container) {}
+      auto& operator++() { return *this; }
+      auto operator*() { return inserter{container_}; }
+  private:
+      C& container_;
+  };
+
+  template <class C>
+  auto pointer_back_inserter(C& container) {
+      return pointer_back_insert_iterator<C>(container);
+  }
+
   class SimHitInfo {
   public:
     SimHitInfo(const PSimHit* hitp, size_t hitIndex, uint32_t tofBin)

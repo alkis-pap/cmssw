@@ -38,35 +38,6 @@ private:
     std::vector<TimewalkCurve> curves;
   };
 
-  // Can be used to produce histograms
-  // Mutex protected in order to merge data from multiple threads
-  class ValidationHistograms {
-  public:
-    ~ValidationHistograms();
-
-    void setFilename(const std::string& filename);
-    void addDetectedHit(const std::string& detType, double charge, double time);
-    void addLateHit(const std::string& detType, double charge, double time);
-    void addUndetectedHit(const std::string& detType, double charge, double time);
-  
-  private:
-    template <size_t... Is>
-    void add(const std::string& detType, double charge, double time);
-
-    struct HistogramArray : public std::array<TH2I*, 4> {
-      template <class... H>
-      HistogramArray(H... histograms)
-        : std::array<TH2I*, 4>{{histograms...}}
-      {}
-    };
-
-    std::map<std::string, HistogramArray> histograms;
-    std::string filename_;
-    std::mutex mutex_;
-  };
-
-  static ValidationHistograms validationHistograms;
-
 public:
   PixelDigitizerAlgorithm(const edm::ParameterSet& conf);
   ~PixelDigitizerAlgorithm() override;
@@ -98,7 +69,5 @@ private:
   const double even_column_interchannelCoupling_next_column_;
 
   const TimewalkModel timewalk_model_;
-
-  bool doValidation_;
 };
 #endif

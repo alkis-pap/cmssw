@@ -39,11 +39,13 @@ void PSSDigitizerAlgorithm::accumulateSimHits(std::vector<PSimHit>::const_iterat
   size_t simHitGlobalIndex = inputBeginGlobalIndex;  // This needs to be stored to create the digi-sim link later
 
   // find the relevant hits
-  for (auto it = inputBegin; it != inputEnd; ++it) {
-    const auto& hit = *it;
-    
-    if (hit.detUnitId() != detId)
-      continue;  
+  std::vector<const PSimHit*> matchedSimHits;
+  std::copy_if(inputBegin, inputEnd, DigitizerUtility::pointer_back_inserter(matchedSimHits), [detId](auto const& hit) -> bool {
+    return hit.detUnitId() == detId;
+  });
+  // loop over a much reduced set of SimHits
+  for (auto const& hitp : matchedSimHits) {
+    auto const& hit = *hitp;
   
     LogDebug("PSSDigitizerAlgorithm") << hit.particleType() << " " << hit.pabs() << " " << hit.energyLoss() << " "
                                       << hit.tof() << " " << hit.trackId() << " " << hit.processType() << " "
