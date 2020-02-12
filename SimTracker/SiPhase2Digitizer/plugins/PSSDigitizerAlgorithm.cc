@@ -44,7 +44,7 @@ void PSSDigitizerAlgorithm::accumulateSimHits(std::vector<PSimHit>::const_iterat
     return hit.detUnitId() == detId;
   });
   // loop over a much reduced set of SimHits
-  for (auto const& hit : matchedSimHits) { 
+  for (auto const& hit : matchedSimHits) {
     LogDebug("PSSDigitizerAlgorithm") << hit.particleType() << " " << hit.pabs() << " " << hit.energyLoss() << " "
                                       << hit.tof() << " " << hit.trackId() << " " << hit.processType() << " "
                                       << hit.detUnitId() << hit.entryPoint() << " " << hit.exitPoint();
@@ -77,4 +77,8 @@ bool PSSDigitizerAlgorithm::select_hit(const PSimHit& hit, double tCorr, double&
   if (toa > theTofLowerCut_ && toa < theTofUpperCut_) result = true;
 
   return result;
+}
+bool PSSDigitizerAlgorithm::isAboveThreshold(const DigitizerUtility::SimHitInfo*const hisInfo, float charge, float thr) {
+  if (charge > thr) return true;
+  else return false;
 }

@@ -199,3 +199,7 @@ double SSDigitizerAlgorithm::getSignalScale(double xval) {
   } 
   return res;
 }
+bool SSDigitizerAlgorithm::isAboveThreshold(const DigitizerUtility::SimHitInfo*const hisInfo, float charge, float thr) {
+  if (charge > thr) return true;
+  else return false;
+}

@@ -3,25 +3,22 @@
 
 #include "SimTracker/SiPhase2Digitizer/plugins/Phase2TrackerDigitizerAlgorithm.h"
 
-#include "TH2I.h"
-
-#include <mutex>
-
 class PixelDigitizerAlgorithm : public Phase2TrackerDigitizerAlgorithm {
+
 private:
   // A list of 2d points
   class TimewalkCurve {
   public:
-      // pset must contain "charge" and "delay" of type vdouble
-      TimewalkCurve(const edm::ParameterSet& pset);
+    // pset must contain "charge" and "delay" of type vdouble
+    TimewalkCurve(const edm::ParameterSet& pset);
 
-      // linear interpolation
-      double operator() (double x) const;
+    // linear interpolation
+    double operator() (double x) const;
 
-    private:
-      std::vector<double> x_;
-      std::vector<double> y_;
-    };
+  private:
+    std::vector<double> x_;
+    std::vector<double> y_;
+  };
 
   // Holds the timewalk model data
   class TimewalkModel {
@@ -53,23 +50,15 @@ public:
                          const uint32_t tofBin,
                          const Phase2TrackerGeomDetUnit* pixdet,
                          const GlobalVector& bfield) override;
+  bool select_hit(const PSimHit& hit, double tCorr, double& sigScale) override {return true; }
+  bool isAboveThreshold(const DigitizerUtility::SimHitInfo* hitInfo, float charge, float thr);
   void add_cross_talk(const Phase2TrackerGeomDetUnit* pixdet) override;
 
-  void digitize(const Phase2TrackerGeomDetUnit* pixdet,
-                std::map<int, DigitizerUtility::DigiSimInfo>& digi_map,
-                const TrackerTopology* tTopo) override;
-
-  bool select_hit(const PSimHit& hit, double tCorr, double& sigScale) override { return true; }
-
-private:
   // Addition four xtalk-related parameters to PixelDigitizerAlgorithm specific parameters initialized in Phase2TrackerDigitizerAlgorithm
   const double odd_row_interchannelCoupling_next_row_;
   const double even_row_interchannelCoupling_next_row_;
   const double odd_column_interchannelCoupling_next_column_;
   const double even_column_interchannelCoupling_next_column_;
-
   const TimewalkModel timewalk_model_;
-
-  std::map<size_t, double> hit_times;
 };
 #endif

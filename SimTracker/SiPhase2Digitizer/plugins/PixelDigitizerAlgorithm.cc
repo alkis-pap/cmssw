@@ -19,12 +19,6 @@
 #include "Geometry/CommonDetUnit/interface/PixelGeomDetUnit.h"
 #include "Geometry/CommonTopologies/interface/PixelTopology.h"
 
-#include "CLHEP/Random/RandGaussQ.h"
-#include "DataFormats/SiPixelDetId/interface/PixelSubdetector.h"
-#include "DataFormats/SiStripDetId/interface/StripSubdetector.h"
-
-#include "TFile.h"
-
 using namespace edm;
 using namespace sipixelobjects;
 
@@ -41,8 +35,6 @@ void PixelDigitizerAlgorithm::init(const edm::EventSetup& es) {
   // gets the map and geometry from the DB (to kill ROCs)
   es.get<SiPixelFedCablingMapRcd>().get(fedCablingMap_);
   es.get<TrackerDigiGeometryRecord>().get(geom_);
-
-  hit_times.clear();
 }
 
 PixelDigitizerAlgorithm::PixelDigitizerAlgorithm(const edm::ParameterSet& conf)
@@ -57,8 +49,9 @@ PixelDigitizerAlgorithm::PixelDigitizerAlgorithm(const edm::ParameterSet& conf)
               .getParameter<double>("Odd_column_interchannelCoupling_next_column")),
       even_column_interchannelCoupling_next_column_(
           conf.getParameter<ParameterSet>("PixelDigitizerAlgorithm")
-              .getParameter<double>("Even_column_interchannelCoupling_next_column")),
+	  .getParameter<double>("Even_column_interchannelCoupling_next_column")),
       timewalk_model_(conf.getParameter<ParameterSet>("PixelDigitizerAlgorithm").getParameter<edm::ParameterSet>("TimewalkModel")){
+ 
   pixelFlag_ = true;
   LogInfo("PixelDigitizerAlgorithm") << "Algorithm constructed "
                                      << "Configuration parameters:"
@@ -68,9 +61,7 @@ PixelDigitizerAlgorithm::PixelDigitizerAlgorithm(const edm::ParameterSet& conf)
                                      << theElectronPerADC_ << " " << theAdcFullScale_ << " The delta cut-off is set to "
                                      << tMax_ << " pix-inefficiency " << addPixelInefficiency_;
 }
-
 PixelDigitizerAlgorithm::~PixelDigitizerAlgorithm() { LogDebug("PixelDigitizerAlgorithm") << "Algorithm deleted"; }
-
 void PixelDigitizerAlgorithm::accumulateSimHits(std::vector<PSimHit>::const_iterator inputBegin,
                                                 std::vector<PSimHit>::const_iterator inputEnd,
                                                 const size_t inputBeginGlobalIndex,
@@ -96,13 +87,9 @@ void PixelDigitizerAlgorithm::accumulateSimHits(std::vector<PSimHit>::const_iter
     std::vector<DigitizerUtility::EnergyDepositUnit> ionization_points;
     std::vector<DigitizerUtility::SignalPoint> collection_points;
 
-    // apply correction to tof
-    double time = hit.tof() - pixdet->surface().toGlobal((hit).localPosition()).mag() / 30.;
-
-    // check if the hit arrived durring this bunch crossing
-    if (time >= theTofLowerCut_ && time <= theTofUpperCut_) {
-      hit_times.emplace(simHitGlobalIndex, time);
-
+    double signalScale = 1.0;
+    // fill collection_points for this SimHit, indpendent of topology                                                                                                                                                                         
+    if (select_hit(hit, (pixdet->surface().toGlobal(hit.localPosition()).mag()/30.),signalScale)) {
       primary_ionization(hit, ionization_points);  // fills ionization_points
 
       // transforms ionization_points -> collection_points
@@ -115,7 +102,6 @@ void PixelDigitizerAlgorithm::accumulateSimHits(std::vector<PSimHit>::const_iter
     ++simHitGlobalIndex;
   }
 }
-
 // ======================================================================
 //
 //  Add  Cross-talk contribution
@@ -218,85 +204,6 @@ void PixelDigitizerAlgorithm::add_cross_talk(const Phase2TrackerGeomDetUnit* pix
     }
   }
 }
-
-void PixelDigitizerAlgorithm::digitize(const Phase2TrackerGeomDetUnit* pixdet,
-                                               std::map<int, DigitizerUtility::DigiSimInfo>& digi_map,
-                                               const TrackerTopology* tTopo) {
-  uint32_t detID = pixdet->geographicalId().rawId();
-  auto it = _signal.find(detID);
-  if (it == _signal.end())
-    return;
-
-  const signal_map_type& theSignal = _signal[detID];
-
-  uint32_t Sub_detid = DetId(detID).subdetId();
-
-  float theThresholdInE = 0.;
-  float theHIPThresholdInE = 0.;
-  // Define Threshold
-  if (Sub_detid == PixelSubdetector::PixelBarrel || Sub_detid == StripSubdetector::TOB) {  // Barrel modules
-    theThresholdInE = addThresholdSmearing_ ? smearedThreshold_Barrel_->fire()             // gaussian smearing
-                                            : theThresholdInE_Barrel_;                     // no smearing
-    theHIPThresholdInE = theHIPThresholdInE_Barrel_;
-  } else {                                                                      // Forward disks modules
-    theThresholdInE = addThresholdSmearing_ ? smearedThreshold_Endcap_->fire()  // gaussian smearing
-                                            : theThresholdInE_Endcap_;          // no smearing
-    theHIPThresholdInE = theHIPThresholdInE_Endcap_;
-  }
-
-  //  if (addNoise) add_noise(pixdet, theThresholdInE/theNoiseInElectrons_);  // generate noise
-  if (addNoise_)
-    add_noise(pixdet);  // generate noise
-  if (addXtalk_)
-    add_cross_talk(pixdet);
-  if (addNoisyPixels_)
-    add_noisy_cells(pixdet, theHIPThresholdInE / theElectronPerADC_);
-
-  // Do only if needed
-  if (addPixelInefficiency_ && !theSignal.empty()) {
-    if (use_ineff_from_db_)
-      pixel_inefficiency_db(detID);
-    else
-      pixel_inefficiency(subdetEfficiencies_, pixdet, tTopo);
-  }
-  if (use_module_killing_) {
-    if (use_deadmodule_DB_)  // remove dead modules using DB
-      module_killing_DB(pixdet);
-    else  // remove dead modules using the list in cfg file
-      module_killing_conf(detID);
-  }
-
-  // Digitize if the signal is greater than threshold
-  for (auto const& s : theSignal) {
-    const DigitizerUtility::Amplitude& sig_data = s.second;
-    float signalInElectrons = sig_data.ampl();
-
-    const auto& info_list = sig_data.simInfoList();
-    const auto it = std::max_element(info_list.begin(), info_list.end());
-    const DigitizerUtility::SimHitInfo* hitInfo = it->second.get();
-    if (hitInfo) {
-      float tof = hit_times[hitInfo->hitIndex()];
-      double time = tof + timewalk_model_(signalInElectrons, theThresholdInE);
-      if (time < theTofLowerCut_ || time > theTofUpperCut_)
-        continue;
-    }
-
-    if (signalInElectrons >= theThresholdInE) {  // check threshold
-      DigitizerUtility::DigiSimInfo info;
-      info.sig_tot = convertSignalToAdc(detID, signalInElectrons, theThresholdInE);  // adc
-      info.ot_bit = signalInElectrons > theHIPThresholdInE ? true : false;
-      if (makeDigiSimLinks_) {
-        for (auto const& l : sig_data.simInfoList()) {
-          float charge_frac = l.first / signalInElectrons;
-          if (l.first > -5.0)
-            info.simInfoList.push_back({charge_frac, l.second.get()});
-        }
-      }
-      digi_map.insert({s.first, info});
-    }
-  }
-}
-
 PixelDigitizerAlgorithm::TimewalkCurve::TimewalkCurve(const edm::ParameterSet& pset)
   : x_(pset.getParameter<std::vector<double>>("charge"))
   , y_(pset.getParameter<std::vector<double>>("delay"))
@@ -333,13 +240,19 @@ double PixelDigitizerAlgorithm::TimewalkModel::operator()(double q_in, double q_
 }
 
 std::size_t PixelDigitizerAlgorithm::TimewalkModel::find_closest_index(const std::vector<double>& vec, double value) const {
-    auto it = std::lower_bound(vec.begin(), vec.end(), value);
-    if (it == vec.begin()) return 0;
-    else if (it == vec.end()) return vec.size() - 1;
-    else {
-      auto it_upper = it;
-      auto it_lower = --it;
-      auto closest = (value - *it_lower > *it_upper - value) ? it_upper : it_lower;
-      return std::distance(vec.begin(), closest);
-    }
+  auto it = std::lower_bound(vec.begin(), vec.end(), value);
+  if (it == vec.begin()) return 0;
+  else if (it == vec.end()) return vec.size() - 1;
+  else {
+    auto it_upper = it;
+    auto it_lower = --it;
+    auto closest = (value - *it_lower > *it_upper - value) ? it_upper : it_lower;
+    return std::distance(vec.begin(), closest);
+  }
+}
+bool PixelDigitizerAlgorithm::isAboveThreshold(const DigitizerUtility::SimHitInfo* hitInfo, float charge, float thr) {
+  float corrected_time = hitInfo->time();
+  double time = corrected_time + timewalk_model_(charge, thr);
+  if (time < theTofLowerCut_ || time > theTofUpperCut_) return true;
+  else return false;
 }
