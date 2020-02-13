@@ -943,8 +943,10 @@ void Phase2TrackerDigitizerAlgorithm::digitize(const Phase2TrackerGeomDetUnit* p
     float signalInElectrons = sig_data.ampl();
 
     const auto& info_list = sig_data.simInfoList();
-    const auto it = std::max_element(info_list.begin(), info_list.end());
-    const DigitizerUtility::SimHitInfo* hitInfo = it->second.get();
+    const DigitizerUtility::SimHitInfo* hitInfo = nullptr;
+    if (info_list.size())
+      hitInfo = std::max_element(info_list.begin(), info_list.end())->second.get();
+
     if (isAboveThreshold(hitInfo, signalInElectrons, theThresholdInE)) {  // check threshold
       DigitizerUtility::DigiSimInfo info;
       info.sig_tot = convertSignalToAdc(detID, signalInElectrons, theThresholdInE);  // adc
