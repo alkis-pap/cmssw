@@ -50,7 +50,7 @@ public:
                          const uint32_t tofBin,
                          const Phase2TrackerGeomDetUnit* pixdet,
                          const GlobalVector& bfield) override;
-  bool select_hit(const PSimHit& hit, double tCorr, double& sigScale) override {return true; }
+  bool select_hit(const PSimHit& hit, double tCorr, double& sigScale) override;
   bool isAboveThreshold(const DigitizerUtility::SimHitInfo* hitInfo, float charge, float thr) override;
   void add_cross_talk(const Phase2TrackerGeomDetUnit* pixdet) override;
 

@@ -102,6 +102,12 @@ void PixelDigitizerAlgorithm::accumulateSimHits(std::vector<PSimHit>::const_iter
     ++simHitGlobalIndex;
   }
 }
+
+bool PixelDigitizerAlgorithm::select_hit(const PSimHit& hit, double tCorr, double& sigScale) {
+  double time = hit.tof() - tCorr;
+  return (time >= theTofLowerCut_ && time < theTofUpperCut_);
+}
+
 // ======================================================================
 //
 //  Add  Cross-talk contribution

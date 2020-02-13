@@ -79,6 +79,7 @@ phase2TrackerDigitizer = cms.PSet(
           )
         )
       )
+    ),
 #Pixel in PS Module
     PSPDigitizerAlgorithm = cms.PSet(
       ElectronPerAdc = cms.double(135.0),
